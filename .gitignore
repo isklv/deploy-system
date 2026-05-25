@@ -1,0 +1,12 @@
+# Env files with secrets
+.env.deployer
+.env
+
+# Node
+node_modules/
+npm-debug.log
+
+# OS
+.DS_Store
+*.swp
+*.swo
