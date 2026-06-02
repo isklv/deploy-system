@@ -57,7 +57,10 @@ function handleDeploy(req, res, url) {
 
       const projectName = repo.split('/').pop();
       const projectDir = `${PROJECTS_DIR}/${projectName}`;
-      const repoUrl = `https://github.com/${repo}.git`;
+      const ghToken = process.env.GHCR_TOKEN || process.env.GITHUB_TOKEN || '';
+      const cloneBase = ghToken
+        ? `https://${ghToken}@github.com/${repo}.git`
+        : `https://github.com/${repo}.git`;
 
       log(`📦 Deploying ${repo} (${branch}) → ${projectDir}`);
 
@@ -66,15 +69,14 @@ function handleDeploy(req, res, url) {
       // 1. Clone or update
       if (exists(projectDir)) {
         log(`🔄 Updating ${projectDir}`);
-        steps.push({ step: 'update', cmd: `cd ${projectDir} && git pull origin ${branch}`, output: '' });
+        steps.push({ step: 'update', cmd: `cd ${projectDir} && git remote set-url origin ${cloneBase} && git pull origin ${branch}`, output: '' });
       } else {
-        log(`📥 Cloning ${repoUrl} → ${projectDir}`);
+        log(`📥 Cloning ${cloneBase} → ${projectDir}`);
         execSync(`mkdir -p ${PROJECTS_DIR}`);
-        steps.push({ step: 'clone', cmd: `git clone --branch ${branch} --depth 1 ${repoUrl} ${projectDir}`, output: '' });
+        steps.push({ step: 'clone', cmd: `git clone --branch ${branch} --depth 1 ${cloneBase} ${projectDir}`, output: '' });
       }
 
       // 2. Docker login (GHCR)
-      const ghToken = process.env.GHCR_TOKEN;
       if (ghToken) {
         steps.push({
           step: 'login',
@@ -97,7 +99,7 @@ function handleDeploy(req, res, url) {
           const output = execSync(step.cmd, {
             encoding: 'utf8',
             timeout: 120000,
-            env: { ...process.env, HOME: '/root' }
+            env: { ...process.env, HOME: '/root', GIT_TERMINAL_PROMPT: '0' }
           });
           step.output = output;
           step.status = 'success';
