@@ -42,12 +42,15 @@ function handleDeploy(req, res, url) {
   req.on('end', () => {
     try {
       const data = JSON.parse(body || '{}');
-      const project = data.project;           // project name, e.g. "video-callback"
-      const composeContent = data.compose;     // docker-compose.yml content
-      const envContent = data.env;             // .env content (optional)
+      const project = data.project;
+      const composeB64 = data.compose_b64;
+      const envB64 = data.env_b64;
 
       if (!project) return json(res, 400, { error: 'Missing "project" field' });
-      if (!composeContent) return json(res, 400, { error: 'Missing "compose" field' });
+      if (!composeB64) return json(res, 400, { error: 'Missing "compose_b64" field' });
+
+      const composeContent = Buffer.from(composeB64, 'base64').toString('utf8');
+      const envContent = envB64 ? Buffer.from(envB64, 'base64').toString('utf8') : '';
 
       const projectDir = `${PROJECTS_DIR}/${project}`;
       log(`📦 Deploying ${project} → ${projectDir}`);
