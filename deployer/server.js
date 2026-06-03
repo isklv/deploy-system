@@ -85,9 +85,26 @@ function handleDeploy(req, res, url) {
         }
       }
 
+      // Try docker compose (plugin) first, fallback to docker-compose (standalone)
+      let composeCmd = 'docker compose';
+      try {
+        execSync('which docker-compose || docker compose version', { encoding: 'utf8', timeout: 5000 });
+        // docker-compose exists, use it
+        composeCmd = 'docker-compose';
+      } catch {
+        // docker compose plugin or fallback
+        try {
+          execSync('docker compose version', { encoding: 'utf8', timeout: 5000 });
+          composeCmd = 'docker compose';
+        } catch {
+          results.push({ step: 'compose-check', status: 'error', output: 'Neither docker-compose nor docker compose plugin found' });
+          log('❌ Docker Compose not found!');
+        }
+      }
+
       // 4. Pull images
       try {
-        const pullOutput = execSync(`cd ${projectDir} && docker-compose pull`, {
+        const pullOutput = execSync(`cd ${projectDir} && ${composeCmd} pull`, {
           encoding: 'utf8', timeout: 300000, env: { ...process.env, HOME: '/root' }
         });
         results.push({ step: 'pull', status: 'success', output: pullOutput.trim() });
@@ -99,7 +116,7 @@ function handleDeploy(req, res, url) {
 
       // 5. Compose up -d (start/restart containers)
       try {
-        const upOutput = execSync(`cd ${projectDir} && docker-compose up -d`, {
+        const upOutput = execSync(`cd ${projectDir} && ${composeCmd} up -d`, {
           encoding: 'utf8', timeout: 300000, env: { ...process.env, HOME: '/root' }
         });
         results.push({ step: 'up', status: 'success', output: upOutput.trim() });
