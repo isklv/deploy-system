@@ -1,4 +1,5 @@
 const http = require('http');
+const fs = require('fs');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
 
@@ -6,7 +7,7 @@ const crypto = require('crypto');
 const PORT = parseInt(process.env.PORT) || 9090;
 const TOKEN = process.env.DEPLOY_TOKEN || crypto.randomBytes(32).toString('hex');
 const PROJECTS_DIR = process.env.PROJECTS_DIR || '/opt/projects';
-const LOG_WEBHOOK = process.env.LOG_WEBHOOK || ''; // optional: forward logs to another webhook (e.g., Telegram bot)
+const LOG_WEBHOOK = process.env.LOG_WEBHOOK || '';
 
 console.log(`🚀 Deployer started on port ${PORT}`);
 console.log(`📁 Projects dir: ${PROJECTS_DIR}`);
@@ -15,17 +16,14 @@ console.log(`🔑 Token: ${TOKEN.substring(0, 8)}...`);
 const httpServer = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
-  // Health check
   if (url.pathname === '/health' && req.method === 'GET') {
     return json(res, 200, { status: 'ok', uptime: process.uptime() });
   }
 
-  // Deploy endpoint
   if (url.pathname === '/deploy' && req.method === 'POST') {
     return handleDeploy(req, res, url);
   }
 
-  // List projects
   if (url.pathname === '/projects' && req.method === 'GET') {
     return listProjects(req, res, url);
   }
@@ -39,67 +37,72 @@ function handleDeploy(req, res, url) {
     return json(res, 403, { error: 'Invalid token' });
   }
 
-  // Read body
   let body = '';
   req.on('data', chunk => body += chunk);
   req.on('end', () => {
     try {
-      const data = body ? JSON.parse(body) : {};
-      const repo = data.repo;          // e.g. "isklv/short-link"
-      const branch = data.branch || 'main';
-      const composeFile = data.compose_file || 'docker-compose.yml';
-      const serviceName = data.service || null; // deploy specific service only
-      const envVars = data.env || {};   // optional: inline env vars
+      const data = JSON.parse(body || '{}');
+      const project = data.project;       // project name, e.g. "video-callback"
+      const composeContent = data.compose; // docker-compose.yml content
+      const envContent = data.env;         // .env content (optional)
 
-      if (!repo) {
-        return json(res, 400, { error: 'Missing "repo" field. Expected: "owner/repo"' });
+      if (!project) {
+        return json(res, 400, { error: 'Missing "project" field' });
       }
 
-      const projectName = repo.split('/').pop();
-      const projectDir = `${PROJECTS_DIR}/${projectName}`;
-      const ghToken = process.env.GHCR_TOKEN || process.env.GITHUB_TOKEN || '';
-      const cloneBase = ghToken
-        ? `https://${ghToken}@github.com/${repo}.git`
-        : `https://github.com/${repo}.git`;
+      if (!composeContent) {
+        return json(res, 400, { error: 'Missing "compose" field (docker-compose.yml content)' });
+      }
 
-      log(`📦 Deploying ${repo} (${branch}) → ${projectDir}`);
+      const projectDir = `${PROJECTS_DIR}/${project}`;
+      log(`📦 Deploying ${project} → ${projectDir}`);
 
       const steps = [];
 
-      // 1. Clone or update
-      if (exists(projectDir)) {
-        log(`🔄 Updating ${projectDir}`);
-        steps.push({ step: 'update', cmd: `cd ${projectDir} && git remote set-url origin ${cloneBase} && git pull origin ${branch}`, output: '' });
-      } else {
-        log(`📥 Cloning ${cloneBase} → ${projectDir}`);
-        execSync(`mkdir -p ${PROJECTS_DIR}`);
-        steps.push({ step: 'clone', cmd: `git clone --branch ${branch} --depth 1 ${cloneBase} ${projectDir}`, output: '' });
+      // 1. Write docker-compose.yml
+      execSync(`mkdir -p ${projectDir}`);
+      fs.writeFileSync(`${projectDir}/docker-compose.yml`, composeContent);
+      steps.push({ step: 'write-compose', status: 'success', output: 'docker-compose.yml written' });
+      log('✅ docker-compose.yml written');
+
+      // 2. Write .env if provided
+      if (envContent) {
+        fs.writeFileSync(`${projectDir}/.env`, envContent);
+        steps.push({ step: 'write-env', status: 'success', output: '.env written' });
+        log('✅ .env written');
       }
 
-      // 2. Docker login (GHCR)
+      // 3. Docker login (GHCR)
+      const ghToken = process.env.GHCR_TOKEN;
       if (ghToken) {
         steps.push({
           step: 'login',
-          cmd: `echo '${ghToken}' | docker login ghcr.io -u ${repo.split('/')[0]} --password-stdin`,
-          output: ''
+          cmd: `echo '${ghToken}' | docker login ghcr.io -u isklv --password-stdin`,
+          output: '',
+          status: ''
         });
       }
 
-      // 3. Docker compose up
-      const composeCmd = serviceName
-        ? `cd ${projectDir} && docker compose -f ${composeFile} up -d --pull always ${serviceName}`
-        : `cd ${projectDir} && docker compose -f ${composeFile} up -d --pull always`;
+      // 4. Pull + deploy
+      steps.push({
+        step: 'deploy',
+        cmd: `cd ${projectDir} && docker compose pull && docker compose up -d`,
+        output: '',
+        status: ''
+      });
 
-      steps.push({ step: 'deploy', cmd: composeCmd, output: '' });
-
-      // Execute steps
+      // Execute
       const results = [];
       for (const step of steps) {
+        if (step.status) {
+          results.push(step);
+          continue;
+        }
         try {
           const output = execSync(step.cmd, {
             encoding: 'utf8',
-            timeout: 120000,
-            env: { ...process.env, HOME: '/root', GIT_TERMINAL_PROMPT: '0' }
+            timeout: 300000,
+            env: { ...process.env, HOME: '/root' }
           });
           step.output = output;
           step.status = 'success';
@@ -115,16 +118,13 @@ function handleDeploy(req, res, url) {
 
       const allOk = results.every(r => r.status === 'success');
 
-      // Forward to log webhook (Telegram, etc.)
       if (LOG_WEBHOOK) {
-        forwardLog(repo, branch, projectName, allOk, results);
+        forwardLog(project, allOk, results);
       }
 
       json(res, allOk ? 200 : 500, {
         success: allOk,
-        project: projectName,
-        repo,
-        branch,
+        project,
         results
       });
     } catch (err) {
@@ -144,7 +144,7 @@ function listProjects(req, res, url) {
       const dir = `${PROJECTS_DIR}/${name}`;
       let containers = [];
       try {
-        const ps = execSync(`docker compose -f ${dir}/docker-compose.yml ps --format json 2>/dev/null || echo "[]"`, { encoding: 'utf8' });
+        const ps = execSync(`cd ${dir} && docker compose ps --format json 2>/dev/null || echo "[]"`, { encoding: 'utf8' });
         containers = JSON.parse(ps || '[]');
       } catch {}
       return { name, path: dir, containers };
@@ -155,36 +155,28 @@ function listProjects(req, res, url) {
   }
 }
 
-function forwardLog(repo, branch, project, success, results) {
+function forwardLog(project, success, results) {
   try {
     const summary = results.map(r => `${r.status === 'success' ? '✅' : '❌'} ${r.step}`).join('\n');
     const msg = `**${success ? '✅ Deploy OK' : '❌ Deploy Failed'}**\n\n` +
-      `**Project:** ${project}\n` +
-      `**Repo:** ${repo}\n` +
-      `**Branch:** ${branch}\n\n` +
+      `**Project:** ${project}\n\n` +
       `${summary}`;
 
     const data = JSON.stringify({ text: msg, parse_mode: 'Markdown' });
-    // Use --data-binary to avoid shell escaping issues
     const tmpFile = `/tmp/deploy-log-${Date.now()}.json`;
-    require('fs').writeFileSync(tmpFile, data);
+    fs.writeFileSync(tmpFile, data);
     execSync(`curl -s -X POST -H "Content-Type: application/json" -d @${tmpFile} ${LOG_WEBHOOK}`, {
       timeout: 5000, encoding: 'utf8'
     });
-    require('fs').unlinkSync(tmpFile);
+    fs.unlinkSync(tmpFile);
   } catch (err) {
     log(`⚠️ Log webhook failed: ${err.message}`);
   }
 }
 
-// Helpers
 function json(res, code, data) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data, null, 2));
-}
-
-function exists(path) {
-  try { require('fs').accessSync(path); return true; } catch { return false; }
 }
 
 function log(msg) {

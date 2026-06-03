@@ -1,5 +1,5 @@
 # Deployer — запускается на VPS
-# Мониторит webhook и деплоит проекты через docker compose
+# Принимает webhook с docker-compose.yml → docker login → pull → up
 
 services:
   deployer:
@@ -10,7 +10,7 @@ services:
     environment:
       # Токен для авторизации webhook (обязательно измени!)
       - DEPLOY_TOKEN=${DEPLOY_TOKEN:?Set DEPLOY_TOKEN}
-      # Токен для pull из GHCR (read:packages)
+      # PAT для pull из GHCR (read:packages)
       - GHCR_TOKEN=${GHCR_TOKEN:?Set GHCR_TOKEN}
       # Куда класть проекты
       - PROJECTS_DIR=/opt/projects
@@ -21,15 +21,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Проекты хранятся на host
       - /opt/projects:/opt/projects
-      # Git config (для clone)
-      - git-config:/root/.git
     restart: unless-stopped
-    # Healthcheck
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-
-volumes:
-  git-config:
