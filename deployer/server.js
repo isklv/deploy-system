@@ -83,10 +83,10 @@ function handleDeploy(req, res, url) {
         });
       }
 
-      // 4. Pull + deploy
+      // 4. Pull images only (no compose up)
       steps.push({
-        step: 'deploy',
-        cmd: `cd ${projectDir} && docker compose pull && docker compose up -d`,
+        step: 'pull',
+        cmd: `cd ${projectDir} && docker compose pull`,
         output: '',
         status: ''
       });
