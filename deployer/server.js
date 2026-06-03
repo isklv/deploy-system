@@ -42,24 +42,39 @@ function handleDeploy(req, res, url) {
   req.on('end', () => {
     try {
       const data = JSON.parse(body || '{}');
-      const images = data.images; // array of image names, e.g. ["ghcr.io/isklv/video-callback/backend:latest"]
+      const project = data.project;           // project name, e.g. "video-callback"
+      const composeContent = data.compose;     // docker-compose.yml content
+      const envContent = data.env;             // .env content (optional)
 
-      if (!images || !Array.isArray(images) || images.length === 0) {
-        return json(res, 400, { error: 'Missing "images" field. Expected: ["ghcr.io/isklv/...:tag", ...]' });
-      }
+      if (!project) return json(res, 400, { error: 'Missing "project" field' });
+      if (!composeContent) return json(res, 400, { error: 'Missing "compose" field' });
 
-      log(`📦 Pulling ${images.length} image(s): ${images.join(', ')}`);
+      const projectDir = `${PROJECTS_DIR}/${project}`;
+      log(`📦 Deploying ${project} → ${projectDir}`);
 
       const results = [];
 
-      // 1. Docker login (GHCR)
+      // 1. Write docker-compose.yml
+      execSync(`mkdir -p ${projectDir}`);
+      fs.writeFileSync(`${projectDir}/docker-compose.yml`, composeContent);
+      results.push({ step: 'write-compose', status: 'success', output: 'docker-compose.yml written' });
+      log('✅ docker-compose.yml written');
+
+      // 2. Write .env if provided
+      if (envContent) {
+        fs.writeFileSync(`${projectDir}/.env`, envContent);
+        results.push({ step: 'write-env', status: 'success', output: '.env written' });
+        log('✅ .env written');
+      }
+
+      // 3. Docker login (GHCR)
       const ghToken = process.env.GHCR_TOKEN;
       if (ghToken) {
         try {
-          execSync(`echo '${ghToken}' | docker login ghcr.io -u isklv --password-stdin`, {
+          const output = execSync(`echo '${ghToken}' | docker login ghcr.io -u isklv --password-stdin`, {
             encoding: 'utf8', timeout: 30000, env: { ...process.env, HOME: '/root' }
           });
-          results.push({ step: 'login', status: 'success', output: 'Login Succeeded' });
+          results.push({ step: 'login', status: 'success', output: output.trim() });
           log('✅ Docker login: OK');
         } catch (err) {
           results.push({ step: 'login', status: 'error', output: err.message });
@@ -67,29 +82,39 @@ function handleDeploy(req, res, url) {
         }
       }
 
-      // 2. Pull each image
-      for (const image of images) {
-        try {
-          const output = execSync(`docker pull ${image}`, {
-            encoding: 'utf8', timeout: 300000, env: { ...process.env, HOME: '/root' }
-          });
-          results.push({ step: `pull:${image}`, status: 'success', output: output.trim() });
-          log(`✅ Pulled ${image}`);
-        } catch (err) {
-          results.push({ step: `pull:${image}`, status: 'error', output: err.message });
-          log(`❌ Failed pulling ${image}: ${err.message}`);
-        }
+      // 4. Pull images
+      try {
+        const pullOutput = execSync(`cd ${projectDir} && docker compose pull --ignore-buildable`, {
+          encoding: 'utf8', timeout: 300000, env: { ...process.env, HOME: '/root' }
+        });
+        results.push({ step: 'pull', status: 'success', output: pullOutput.trim() });
+        log('✅ Pull: OK');
+      } catch (err) {
+        results.push({ step: 'pull', status: 'error', output: err.message });
+        log(`❌ Pull: ${err.message}`);
+      }
+
+      // 5. Compose up -d (start/restart containers)
+      try {
+        const upOutput = execSync(`cd ${projectDir} && docker compose up -d`, {
+          encoding: 'utf8', timeout: 300000, env: { ...process.env, HOME: '/root' }
+        });
+        results.push({ step: 'up', status: 'success', output: upOutput.trim() });
+        log('✅ Up: OK');
+      } catch (err) {
+        results.push({ step: 'up', status: 'error', output: err.message });
+        log(`❌ Up: ${err.message}`);
       }
 
       const allOk = results.every(r => r.status === 'success');
 
       if (LOG_WEBHOOK) {
-        forwardLog(images, allOk, results);
+        forwardLog(project, allOk, results);
       }
 
       json(res, allOk ? 200 : 500, {
         success: allOk,
-        images,
+        project,
         results
       });
     } catch (err) {
