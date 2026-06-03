@@ -87,7 +87,7 @@ function handleDeploy(req, res, url) {
 
       // 4. Pull images
       try {
-        const pullOutput = execSync(`cd ${projectDir} && docker compose pull --ignore-buildable`, {
+        const pullOutput = execSync(`cd ${projectDir} && docker-compose pull`, {
           encoding: 'utf8', timeout: 300000, env: { ...process.env, HOME: '/root' }
         });
         results.push({ step: 'pull', status: 'success', output: pullOutput.trim() });
@@ -99,7 +99,7 @@ function handleDeploy(req, res, url) {
 
       // 5. Compose up -d (start/restart containers)
       try {
-        const upOutput = execSync(`cd ${projectDir} && docker compose up -d`, {
+        const upOutput = execSync(`cd ${projectDir} && docker-compose up -d`, {
           encoding: 'utf8', timeout: 300000, env: { ...process.env, HOME: '/root' }
         });
         results.push({ step: 'up', status: 'success', output: upOutput.trim() });
