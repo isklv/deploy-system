@@ -19,6 +19,8 @@ services:
     volumes:
       # Docker socket — deployer управляет контейнерами
       - /var/run/docker.sock:/var/run/docker.sock
+      # Docker CLI plugins (compose)
+      - /usr/libexec/docker/cli-plugins:/usr/libexec/docker/cli-plugins:ro
       # Проекты хранятся на host
       - /opt/projects:/opt/projects
     restart: unless-stopped
