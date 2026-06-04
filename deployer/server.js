@@ -114,7 +114,19 @@ function handleDeploy(req, res, url) {
         log(`❌ Pull: ${err.message}`);
       }
 
-      // 5. Compose up -d (start/restart containers)
+      // 5. Stop old containers (to free ports)
+      try {
+        const downOutput = execSync(`cd ${projectDir} && ${composeCmd} down`, {
+          encoding: 'utf8', timeout: 60000, env: { ...process.env, HOME: '/root' }
+        });
+        results.push({ step: 'down', status: 'success', output: downOutput.trim() });
+        log('✅ Down: OK');
+      } catch (err) {
+        results.push({ step: 'down', status: 'error', output: err.message });
+        log(`❌ Down: ${err.message}`);
+      }
+
+      // 6. Compose up -d (start/restart containers)
       try {
         const upOutput = execSync(`cd ${projectDir} && ${composeCmd} up -d`, {
           encoding: 'utf8', timeout: 300000, env: { ...process.env, HOME: '/root' }
