@@ -21,7 +21,7 @@ const httpServer = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/deploy' && req.method === 'POST') {
-    return handleDeploy(req, res, url);
+    return handleDeploy(req, res, url).catch(e => json(res, 500, { error: e.message }));
   }
 
   if (url.pathname === '/projects' && req.method === 'GET') {
@@ -31,7 +31,7 @@ const httpServer = http.createServer((req, res) => {
   json(res, 404, { error: 'Not found. Use /deploy (POST), /projects (GET), /health (GET)' });
 });
 
-function handleDeploy(req, res, url) {
+async function handleDeploy(req, res, url) {
   const token = url.searchParams.get('token');
   if (token !== TOKEN) {
     return json(res, 403, { error: 'Invalid token' });
@@ -138,6 +138,10 @@ function handleDeploy(req, res, url) {
         results.push({ step: 'down', status: 'error', output: err.message });
         log(`❌ Down: ${err.message}`);
       }
+
+      // Brief pause to let ports fully release
+      log('⏸ Waiting 3s for ports to release...');
+      await new Promise(r => setTimeout(r, 3000));
 
       // 6. Compose up -d (start/restart containers)
       try {
