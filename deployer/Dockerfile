@@ -17,9 +17,5 @@ COPY --from=builder /build/deployer /usr/local/bin/deployer
 
 EXPOSE 9090
 
-# Default flags — override via docker-compose environment
 ENTRYPOINT ["deployer"]
-CMD [
-  "-port=9090",
-  "-projects-dir=/opt/projects",
-]
+CMD []
