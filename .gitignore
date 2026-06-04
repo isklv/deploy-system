@@ -2,9 +2,10 @@
 .env.deployer
 .env
 
-# Node
-node_modules/
-npm-debug.log
+# Go binaries
+deployer
+*.exe
+vendor/
 
 # OS
 .DS_Store

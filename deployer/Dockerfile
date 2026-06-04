@@ -1,13 +1,25 @@
-FROM node:22-alpine
+# Build stage
+FROM golang:1.22-alpine AS builder
 
-# Install docker CLI + docker-compose standalone
-RUN apk add --no-cache docker-cli git openssh-client wget ca-certificates \
-    && wget -qO /usr/local/bin/docker-compose "https://github.com/docker/compose/releases/download/v2.32.1/docker-compose-linux-x86_64" \
-    && chmod +x /usr/local/bin/docker-compose
+RUN apk add --no-cache git ca-certificates
+WORKDIR /build
+COPY go.mod .
+RUN go mod download
+COPY server.go .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o deployer .
 
-WORKDIR /app
-COPY server.js package.json ./
-RUN npm install --production
+# Runtime — minimal + Docker CLI
+FROM alpine:3.19
+
+RUN apk add --no-cache docker-cli curl ca-certificates tzdata
+
+COPY --from=builder /build/deployer /usr/local/bin/deployer
 
 EXPOSE 9090
-CMD ["node", "server.js"]
+
+# Default flags — override via docker-compose environment
+ENTRYPOINT ["deployer"]
+CMD [
+  "-port=9090",
+  "-projects-dir=/opt/projects",
+]

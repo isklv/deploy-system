@@ -1,9 +1,0 @@
-{
-  "name": "deployer",
-  "version": "1.0.0",
-  "description": "VPS deployer — pulls images and deploys via docker compose",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  }
-}

@@ -1,5 +1,6 @@
 # Deployer — запускается на VPS
-# Принимает webhook с docker-compose.yml → docker login → pull → up
+# Принимает webhook с docker-compose.yml → pull → up
+# Переписан на Go (без Node.js зависимостей)
 
 services:
   deployer:
@@ -8,14 +9,16 @@ services:
     ports:
       - "9090:9090"
     environment:
-      # Токен для авторизации webhook (обязательно измени!)
       - DEPLOY_TOKEN=${DEPLOY_TOKEN:?Set DEPLOY_TOKEN}
-      # PAT для pull из GHCR (read:packages)
       - GHCR_TOKEN=${GHCR_TOKEN:?Set GHCR_TOKEN}
-      # Куда класть проекты
-      - PROJECTS_DIR=/opt/projects
       # Опционально: Telegram webhook для уведомлений
       # - LOG_WEBHOOK=https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat_id>
+    command: >
+      -port=9090
+      -token=${DEPLOY_TOKEN}
+      -projects-dir=/opt/projects
+      -ghcr-token=${GHCR_TOKEN}
+      ${LOG_WEBHOOK:+-log-webhook=${LOG_WEBHOOK}}
     volumes:
       # Docker socket — deployer управляет контейнерами
       - /var/run/docker.sock:/var/run/docker.sock
@@ -25,7 +28,7 @@ services:
       - /opt/projects:/opt/projects
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9090/health"]
       interval: 30s
       timeout: 5s
       retries: 3

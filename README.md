@@ -1,71 +1,78 @@
-# Automated Deploy System
+# Deployer
 
-Архитектура:
+Лёгкий HTTP-сервер на Go для управления Docker-контейнерами на VPS.
+
+## API
+
+Все эндпоинты требуют `?token=DEPLOY_TOKEN`.
+
+### Health
+
 ```
-GitHub Actions (build & push → GHCR)
-       │
-       │  webhook POST /deploy
-       ▼
-  [deployer] ── docker compose up -d ──► сервисы на VPS
-   на VPS
+GET /health
 ```
 
-## Быстрый старт
+### Deploy
 
-### 1. На VPS — запустить deployer
+```
+POST /deploy?token=TOKEN
+Content-Type: application/json
+
+{
+  "project": "video-demo",
+  "compose_b64": "<base64-encoded docker-compose.yml>",
+  "env_b64": "<base64-encoded .env (опционально)>"
+}
+```
+
+Последовательность: write compose → write env → docker login → pull → force-clean stale → down → up.
+
+### Контейнеры
+
+```
+GET /containers?token=TOKEN
+```
+
+Список всех контейнеров: ID, имя, образ, статус, порты.
+
+### Логи
+
+```
+GET /logs?token=TOKEN&name=container&tail=100
+```
+
+Последние N строк логов контейнера.
+
+### Стоп
+
+```
+POST /stop?token=TOKEN&name=container&timeout=10
+```
+
+Остановка контейнера (docker stop -t N).
+
+### Удаление
+
+```
+POST /remove?token=TOKEN&name=container&force=1
+```
+
+Удаление контейнера (docker rm [-f]).
+
+## Развертывание
 
 ```bash
-# Создать директорию
-mkdir -p /opt/deployer && cd /opt/deployer
+cp .env.deployer.example .env.deployer
+# Заполни DEPLOY_TOKEN и GHCR_TOKEN
 
-# Скопировать docker-compose.deployer.yml и .env.deployer
-# (файлы из этого репо)
-
-# Создать токен для авторизации webhook
-# любой случайный string, например: openssl rand -hex 32
-
-# Запустить
 docker compose -f docker-compose.deployer.yml up -d
 ```
 
-Deployer слушает порт 9090, endpoint `/deploy`.
+## Сборка
 
-### 2. В GitHub repo — добавить Secret
-
-```
-Settings → Secrets and variables → Actions → New repository secret
-
-Name:  DEPLOY_WEBHOOK
-Value: http://<VPS_IP>:9090/deploy?token=<TOKEN_ИЗ_.ENV>
+```bash
+cd deployer
+CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o deployer .
 ```
 
-### 3. В проекте — добавить workflow
-
-Скопировать `.github/workflows/deploy.yml` в проект.
-
-### 4. Git push → автоматический деплой
-
----
-
-## Как это работает
-
-1. **Push на main** → GitHub Actions собирает Docker-образ
-2. **Push в GHCR** → приватный образ `ghcr.io/isklv/<project>:<sha>`
-3. **Webhook на VPS** → deployer получает POST /deploy
-4. **Deployer** клонирует repo, делает `docker compose pull + up -d` в `/opt/projects/<name>/`
-5. **Лог + статус** → ответ webhook'а содержит результат
-
-## Структура проектов на VPS
-
-```
-/opt/projects/
-├── short-link/
-│   ├── docker-compose.yml    ← клонируется из GitHub
-│   └── .env                  ← создаётся вручную или из secrets
-├── another-app/
-│   ├── docker-compose.yml
-│   └── .env
-└── ...
-```
-
-Deployer клонирует repo в `/opt/projects/<repo_name>/` и запускает compose оттуда.
+Бинарь ~15MB, статически линкованный, без зависимостей.
