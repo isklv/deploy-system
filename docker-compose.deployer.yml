@@ -13,12 +13,6 @@ services:
       - GHCR_TOKEN=${GHCR_TOKEN:?Set GHCR_TOKEN}
       # Опционально: Telegram webhook для уведомлений
       # - LOG_WEBHOOK=https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat_id>
-    command: >
-      -port=9090
-      -token=${DEPLOY_TOKEN}
-      -projects-dir=/opt/projects
-      -ghcr-token=${GHCR_TOKEN}
-      ${LOG_WEBHOOK:+-log-webhook=${LOG_WEBHOOK}}
     volumes:
       # Docker socket — deployer управляет контейнерами
       - /var/run/docker.sock:/var/run/docker.sock

@@ -19,12 +19,19 @@ import (
 // ---- config ----
 
 var (
-	port        = flag.String("port", "9090", "HTTP listen port")
-	token       = flag.String("token", "", "Deploy token (generated if empty)")
-	projectsDir = flag.String("projects-dir", "/opt/projects", "Directory for project files")
-	ghcrToken   = flag.String("ghcr-token", "", "GitHub PAT for ghcr.io login")
-	logWebhook  = flag.String("log-webhook", "", "Telegram webhook URL for deploy notifications")
+	port        = flag.String("port", envOr("PORT", "9090"), "HTTP listen port")
+	token       = flag.String("token", envOr("DEPLOY_TOKEN", ""), "Deploy token (generated if empty)")
+	projectsDir = flag.String("projects-dir", envOr("PROJECTS_DIR", "/opt/projects"), "Directory for project files")
+	ghcrToken   = flag.String("ghcr-token", envOr("GHCR_TOKEN", ""), "GitHub PAT for ghcr.io login")
+	logWebhook  = flag.String("log-webhook", envOr("LOG_WEBHOOK", ""), "Telegram webhook URL for deploy notifications")
 )
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 var startTime time.Time
 
