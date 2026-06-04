@@ -85,14 +85,12 @@ function handleDeploy(req, res, url) {
         }
       }
 
-      // Try docker compose (plugin) first, fallback to docker-compose (standalone)
-      let composeCmd = 'docker compose';
+      // Determine compose command
+      let composeCmd = 'docker-compose';
       try {
-        execSync('which docker-compose || docker compose version', { encoding: 'utf8', timeout: 5000 });
-        // docker-compose exists, use it
+        execSync('docker-compose version', { encoding: 'utf8', timeout: 5000 });
         composeCmd = 'docker-compose';
       } catch {
-        // docker compose plugin or fallback
         try {
           execSync('docker compose version', { encoding: 'utf8', timeout: 5000 });
           composeCmd = 'docker compose';
@@ -114,32 +112,19 @@ function handleDeploy(req, res, url) {
         log(`❌ Pull: ${err.message}`);
       }
 
-      // 4.5. Force remove any stale containers matching project name (orphans from old deploys)
+      // 4.5. Force remove any stale containers matching project prefix (orphans from old deploys)
       try {
-        // Try both container_name prefix and docker-compose project_dir prefix
-        const prefix1 = project.replace(/-/g, '_') + '_'; // e.g. video_callback_
-        const prefix2 = project + '-';                    // e.g. video-callback-
-        let stale = [];
-        try { stale = stale.concat(execSync(`docker ps -aq --filter name=${prefix1}`, {encoding:'utf8'}).trim().split('\n').filter(Boolean)); }
-        try { stale = stale.concat(execSync(`docker ps -aq --filter name=${prefix2}`, {encoding:'utf8'}).trim().split('\n').filter(Boolean)); }
-        // Also try container_name patterns from compose (video-demo-*)
-        const services = composeContent.match(/container_name:\s*(\S+)/g);
-        if (services) {
-          for (const svc of services) {
-            const name = svc.split(':')[1].trim();
-            const partial = name.split('-').slice(0, -1).join('-') + '-'; // video-demo-
-            try { stale = stale.concat(execSync(`docker ps -aq --filter name=${partial}`, {encoding:'utf8'}).trim().split('\n').filter(Boolean)); }
-          }
+        const prefix = project.replace(/-/g, '_'); // video_callback
+        var staleCmd = 'docker ps -aq --filter name=' + prefix + '_';
+        var stale = execSync(staleCmd, { encoding: 'utf8', timeout: 10000 }).trim();
+        if (stale) {
+          execSync('docker rm -f ' + stale, { encoding: 'utf8', timeout: 30000 });
+          log('🧹 Force removed stale containers: ' + stale);
         }
-        stale = [...new Set(stale)]; // dedup
-        if (stale.length) {
-          execSync(`docker rm -f ${stale.join(' ')}`, { encoding: 'utf8', timeout: 30000 });
-          log(`🧹 Force removed ${stale.length} stale containers`);
-        }
-        results.push({ step: 'force-clean', status: 'success', output: stale.length ? `removed ${stale.length} containers` : 'none found' });
+        results.push({ step: 'force-clean', status: 'success', output: stale ? ('removed: ' + stale) : 'none found' });
       } catch (err) {
         results.push({ step: 'force-clean', status: 'error', output: err.message });
-        log(`⚠️ Force clean warning: ${err.message}`);
+        log('⚠️ Force clean warning: ' + err.message);
       }
 
       // 5. Stop old containers (to free ports)
