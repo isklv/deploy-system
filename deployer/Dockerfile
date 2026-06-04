@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o deployer .
 # Runtime — minimal + Docker CLI
 FROM alpine:3.19
 
-RUN apk add --no-cache docker-cli curl ca-certificates tzdata
+RUN apk add --no-cache docker-cli docker-cli-compose curl ca-certificates tzdata
 
 COPY --from=builder /build/deployer /usr/local/bin/deployer
 
