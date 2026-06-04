@@ -244,11 +244,24 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("✅ Pull: OK")
 	}
 
-	// 7. Force remove stale containers
-	prefix := strings.ReplaceAll(req.Project, "-", "_")
-	staleOut, staleErr := runCmd("", "docker", "ps", "-aq", "--filter", "name="+prefix+"_")
-	if staleErr == nil && strings.TrimSpace(staleOut) != "" {
-		stale := strings.Fields(staleOut)
+	// 7. Force remove stale containers (try both dash and underscore prefixes)
+	var staleAll []string
+	for _, prefix := range []string{req.Project + "_", strings.ReplaceAll(req.Project, "-", "_") + "_"} {
+		staleOut, staleErr := runCmd("", "docker", "ps", "-aq", "--filter", "name="+prefix)
+		if staleErr == nil && strings.TrimSpace(staleOut) != "" {
+			staleAll = append(staleAll, strings.Fields(staleOut)...)
+		}
+	}
+	// Deduplicate
+	staleSet := make(map[string]bool)
+	for _, id := range staleAll {
+		staleSet[id] = true
+	}
+	stale := make([]string, 0, len(staleSet))
+	for id := range staleSet {
+		stale = append(stale, id)
+	}
+	if len(stale) > 0 {
 		rmArgs := append([]string{"rm", "-f"}, stale...)
 		rmOut, rmErr := runCmd("", "docker", rmArgs...)
 		if rmErr != nil {
