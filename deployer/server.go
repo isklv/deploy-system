@@ -136,9 +136,10 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Project    string `json:"project"`
-		ComposeB64 string `json:"compose_b64"`
-		EnvB64     string `json:"env_b64"`
+		Project     string                 `json:"project"`
+		ComposeB64  string                 `json:"compose_b64"`
+		EnvB64      string                 `json:"env_b64"`
+		ExtraFilesB64 map[string]string `json:"extra_files_b64"` // path -> base64
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid JSON: " + err.Error()})
@@ -196,6 +197,31 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.addStep("write-env", "success", ".env written")
 		log.Printf("✅ .env written")
+	}
+
+	// 3b. Write extra files (traefik.yml, nginx.conf, etc.)
+	if len(req.ExtraFilesB64) > 0 {
+		for path, dataB64 := range req.ExtraFilesB64 {
+			data, err := base64.StdEncoding.DecodeString(dataB64)
+			if err != nil {
+				resp.addStep(fmt.Sprintf("decode-extra-%s", path), "error", err.Error())
+				writeJSON(w, 400, resp)
+				return
+			}
+			fullPath := filepath.Join(projectDir, path)
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+				resp.addStep(fmt.Sprintf("mkdir-extra-%s", path), "error", err.Error())
+				writeJSON(w, 500, resp)
+				return
+			}
+			if err := os.WriteFile(fullPath, data, 0644); err != nil {
+				resp.addStep(fmt.Sprintf("write-extra-%s", path), "error", err.Error())
+				writeJSON(w, 500, resp)
+				return
+			}
+			resp.addStep(fmt.Sprintf("write-extra-%s", path), "success", path)
+			log.Printf("✅ Extra file written: %s", path)
+		}
 	}
 
 	// 4. Docker login (GHCR)
